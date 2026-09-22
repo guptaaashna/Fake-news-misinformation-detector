@@ -498,6 +498,3 @@ def render_dashboard() -> None:
     render_visualizations()
     render_security_panel()
     render_history_and_export()
-
-
-render_dashboard()
