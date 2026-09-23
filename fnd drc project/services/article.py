@@ -1,6 +1,8 @@
 """Simple webpage and pasted-text extraction helpers."""
 
 import re
+import logging
+import json
 from urllib.parse import urlparse
 
 import requests
@@ -28,13 +30,24 @@ BOILERPLATE_MARKERS = (
 	"widget",
 )
 BOILERPLATE_PHRASES = (
+	"be respectful",
+	"community guidelines",
+	"share your thoughts",
+	"share your views",
+	"leave a comment",
+	"join the conversation",
 	"read more",
 	"related articles",
 	"subscribe to",
+	"subscribe now",
 	"newsletter",
 	"advertisement",
+	"advertising",
 	"about the author",
+	"cookie policy",
+	"privacy policy",
 )
+LOGGER = logging.getLogger(__name__)
 
 
 class ArticleExtractionError(Exception):
@@ -54,11 +67,48 @@ def _validate_url(url: str) -> str:
 
 
 def _get_title(soup: BeautifulSoup) -> str:
+	meta_title = soup.find("meta", attrs={"property": "og:title"}) or soup.find(
+		"meta", attrs={"name": "twitter:title"}
+	)
+	if meta_title and meta_title.get("content"):
+		return clean_text(meta_title["content"])
 	title = clean_text(soup.title.get_text(" ", strip=True)) if soup.title else ""
 	if title:
 		return title
 	h1 = soup.find("h1")
 	return clean_text(h1.get_text(" ", strip=True)) if h1 else "Untitled article"
+
+
+def _get_author(soup: BeautifulSoup) -> str:
+	for selector in (
+		'meta[name="author"]',
+		'meta[property="article:author"]',
+		'[itemprop="author"]',
+		'[rel="author"]',
+	):
+		element = soup.select_one(selector)
+		if element:
+			value = element.get("content") or element.get_text(" ", strip=True)
+			if value:
+				return clean_text(value)
+	return ""
+
+
+def _get_structured_article_body(soup: BeautifulSoup) -> str:
+	"""Read articleBody from JSON-LD when a publisher omits body paragraphs."""
+	for script in soup.find_all("script", type="application/ld+json"):
+		try:
+			payload = json.loads(script.string or script.get_text())
+		except (TypeError, json.JSONDecodeError):
+			continue
+		items = payload if isinstance(payload, list) else [payload]
+		for item in items:
+			if not isinstance(item, dict):
+				continue
+			body = item.get("articleBody")
+			if isinstance(body, str) and _is_useful_paragraph(body):
+				return clean_text(re.sub(r"([.!?])(?=[A-Z])", r"\1 ", body))
+	return ""
 
 
 def _has_boilerplate_marker(element) -> bool:
@@ -105,6 +155,7 @@ def _select_content_root(soup: BeautifulSoup):
 
 
 def _get_article_text(soup: BeautifulSoup) -> str:
+	structured_body = _get_structured_article_body(soup)
 	for element in soup(["script", "style", "noscript", "template", "svg"]):
 		element.decompose()
 	for element in soup(["nav", "footer", "header", "aside", "form"]):
@@ -118,7 +169,7 @@ def _get_article_text(soup: BeautifulSoup) -> str:
 		for paragraph in content_root.find_all("p")
 		if _is_useful_paragraph(paragraph.get_text(" ", strip=True))
 	]
-	return "\n\n".join(paragraphs)
+	return "\n\n".join(paragraphs) or structured_body
 
 
 def extract_article(url: str) -> dict[str, str]:
@@ -136,7 +187,8 @@ def extract_article(url: str) -> dict[str, str]:
 			"Unable to extract this article automatically. Please paste the article text instead."
 		) from error
 
-	soup = BeautifulSoup(response.text, "html.parser")
+	response_content = response.content if isinstance(response.content, (bytes, bytearray)) else response.text
+	soup = BeautifulSoup(response_content, "html.parser")
 	article_text = _get_article_text(soup)
 	if not article_text:
 		raise ArticleExtractionError(
@@ -144,8 +196,17 @@ def extract_article(url: str) -> dict[str, str]:
 		)
 
 	parsed_url = urlparse(validated_url)
-	return {
+	result = {
 		"title": _get_title(soup),
 		"source": parsed_url.hostname or parsed_url.netloc,
+		"author": _get_author(soup),
 		"text": article_text,
 	}
+	LOGGER.debug(
+		"Extracted article title=%r source=%s author=%r body_length=%d",
+		result["title"],
+		result["source"],
+		result["author"],
+		len(article_text),
+	)
+	return result

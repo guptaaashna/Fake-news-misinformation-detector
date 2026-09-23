@@ -1,6 +1,7 @@
 """Rule-based candidate claim extraction using spaCy sentence segmentation."""
 
 import re
+import logging
 
 try:
 	import spacy
@@ -18,20 +19,28 @@ MODEL_INSTALL_MESSAGE = (
 )
 
 FACTUAL_VERBS = {
+	"added",
 	"announced",
+	"approved",
 	"became",
 	"began",
 	"confirmed",
 	"cost",
 	"created",
 	"declared",
+	"developed",
+	"died",
+	"discovered",
 	"found",
 	"generated",
 	"held",
+	"has",
+	"have",
 	"increased",
 	"launched",
 	"located",
 	"measured",
+	"operates",
 	"opened",
 	"produced",
 	"reported",
@@ -41,6 +50,7 @@ FACTUAL_VERBS = {
 	"showed",
 	"signed",
 	"took",
+	"uses",
 	"was",
 	"were",
 	"weighs",
@@ -66,6 +76,21 @@ NAVIGATION_TERMS = {
 	"menu",
 	"privacy policy",
 	"sign in",
+}
+LOGGER = logging.getLogger(__name__)
+NON_FACTUAL_PHRASES = {
+	"be respectful",
+	"community guidelines",
+	"comments section",
+	"share your thoughts",
+	"tell us what you think",
+	"what do you think",
+	"join the conversation",
+	"leave a comment",
+	"read more",
+	"click here",
+	"follow us",
+	"subscribe",
 }
 
 
@@ -94,7 +119,37 @@ def is_full_model_available() -> bool:
 
 def _looks_like_navigation_or_promotion(sentence: str) -> bool:
 	lowered = sentence.lower()
-	return any(term in lowered for term in NAVIGATION_TERMS | PROMOTIONAL_TERMS)
+	return any(term in lowered for term in NAVIGATION_TERMS | PROMOTIONAL_TERMS | NON_FACTUAL_PHRASES)
+
+
+def _has_factual_signal(text: str, words: set[str], entities: bool = False) -> bool:
+	"""Return whether a sentence has a checkable event, state, or measurement."""
+	lowered = text.lower()
+	raw_words = set(re.findall(r"[a-z]+", lowered))
+	return bool(
+		(words | raw_words) & FACTUAL_VERBS
+		or entities
+		or re.search(
+			r"\b(?:19|20)\d{2}\b|\b\d+(?:\.\d+)?%?|\b(?:january|february|march|april|may|june|"
+			r"july|august|september|october|november|december)\b",
+			lowered,
+		)
+	)
+
+
+def is_factual_claim(text: str) -> bool:
+	"""Guard evidence search from boilerplate and non-verifiable instructions."""
+	if not isinstance(text, str):
+		return False
+	claim = re.sub(r"\s+", " ", text).strip()
+	if len(claim) < MINIMUM_SENTENCE_LENGTH or "?" in claim:
+		return False
+	if _looks_like_navigation_or_promotion(claim):
+		return False
+	if re.search(r"\b(?:please|should you|would you|can you|click|subscribe|share)\b", claim.lower()):
+		return False
+	words = set(re.findall(r"[a-z]+", claim.lower()))
+	return _has_factual_signal(claim, words)
 
 
 def _candidate_score(sentence) -> int:
@@ -106,7 +161,7 @@ def _candidate_score(sentence) -> int:
 		score += 2
 	if re.search(r"\d|%|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", lowered):
 		score += 2
-	if words & FACTUAL_VERBS:
+	if _has_factual_signal(text, words, bool(sentence.ents)):
 		score += 2
 	if len(text.split()) >= 8:
 		score += 1
@@ -135,7 +190,7 @@ def extract_claims(text: str) -> list[str]:
 			normalized = claim.casefold()
 			if len(claim) < MINIMUM_SENTENCE_LENGTH or normalized in seen:
 				continue
-			if claim.endswith("?") or _looks_like_navigation_or_promotion(claim):
+			if not is_factual_claim(claim):
 				continue
 			lowered = claim.lower()
 			score = 0
@@ -149,7 +204,9 @@ def extract_claims(text: str) -> list[str]:
 				seen.add(normalized)
 				candidates.append((score, -position, claim))
 		candidates.sort(reverse=True)
-		return [claim for _, _, claim in candidates[:MAX_CLAIMS]]
+		result = [claim for _, _, claim in candidates[:MAX_CLAIMS]]
+		LOGGER.debug("Candidate claims: %s", result)
+		return result
 
 	document = nlp(text[:200_000])
 	candidates: list[tuple[int, int, str]] = []
@@ -159,7 +216,7 @@ def extract_claims(text: str) -> list[str]:
 		normalized = claim.casefold()
 		if len(claim) < MINIMUM_SENTENCE_LENGTH or normalized in seen:
 			continue
-		if claim.endswith("?") or _looks_like_navigation_or_promotion(claim):
+		if not is_factual_claim(claim):
 			continue
 		score = _candidate_score(sentence)
 		if score < 2:
@@ -169,4 +226,6 @@ def extract_claims(text: str) -> list[str]:
 
 	# Prefer stronger factual signals while retaining article order for ties.
 	candidates.sort(reverse=True)
-	return [claim for _, _, claim in candidates[:MAX_CLAIMS]]
+	result = [claim for _, _, claim in candidates[:MAX_CLAIMS]]
+	LOGGER.debug("Candidate claims: %s", result)
+	return result
