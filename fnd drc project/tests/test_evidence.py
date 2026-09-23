@@ -6,10 +6,20 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from services.evidence import search_evidence
+from services.evidence import build_evidence_query, search_evidence
 
 
 class EvidenceSearchTests(unittest.TestCase):
+	def test_builds_compact_query_from_claim_terms(self):
+		query = build_evidence_query(
+			"Share your thoughts in the comments. The ministry opened a centre in Mumbai in 2025."
+		)
+
+		self.assertNotIn("comments", query)
+		self.assertIn("ministry", query)
+		self.assertIn("Mumbai", query)
+		self.assertIn("2025", query)
+
 	def test_empty_claim_returns_empty_list(self):
 		self.assertEqual(search_evidence(""), [])
 

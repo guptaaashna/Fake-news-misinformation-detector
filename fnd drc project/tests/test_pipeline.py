@@ -130,6 +130,26 @@ class PipelineIntegrationTests(unittest.TestCase):
 
 		self.assertEqual(len(searched_claims), 1)
 
+	def test_non_factual_claims_never_reach_evidence_search(self):
+		searched_claims = []
+
+		def search(claim: str) -> list[dict]:
+			searched_claims.append(claim)
+			return []
+
+		result = build_analysis_result(
+			"url",
+			{"title": "Article", "source": "timesofindia.indiatimes.com", "text": ""},
+			[
+				"Share your thoughts in the comments Be respectful - TOI community guidelines.",
+				"The ministry opened a research centre in Mumbai on Monday.",
+			],
+			search,
+		)
+
+		self.assertEqual(searched_claims, ["The ministry opened a research centre in Mumbai on Monday."])
+		self.assertEqual(result["claims"][0]["status"], "insufficient")
+
 
 if __name__ == "__main__":
 	unittest.main()

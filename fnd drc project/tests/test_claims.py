@@ -48,6 +48,29 @@ class ClaimExtractionTests(unittest.TestCase):
 
 		self.assertEqual(claims, [])
 
+	def test_excludes_comment_prompt_and_guidelines(self):
+		text = (
+			"The ministry opened a research centre in Mumbai on Monday. "
+			"Share your thoughts in the comments Be respectful - TOI community guidelines."
+		)
+
+		claims = extract_claims(text)
+
+		self.assertEqual(len(claims), 1)
+		self.assertIn("ministry opened", claims[0])
+		self.assertNotIn("comments", claims[0].lower())
+
+	def test_excludes_mixed_question_lead(self):
+		text = (
+			"Is the policy becoming controversial? The minister said the policy will be implemented "
+			"in 21 states before 2029."
+		)
+
+		claims = extract_claims(text)
+
+		self.assertEqual(len(claims), 1)
+		self.assertNotIn("Is the policy", claims[0])
+
 	def test_limits_normal_article_to_five_claims(self):
 		text = " ".join(
 			f"The research team reported finding {number} results in 2025."

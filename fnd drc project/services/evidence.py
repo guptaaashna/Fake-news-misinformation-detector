@@ -1,6 +1,8 @@
 """External evidence search using Fact Check Tools and GDELT."""
 
 import os
+import re
+import logging
 
 import requests
 from dotenv import load_dotenv
@@ -12,6 +14,27 @@ REQUEST_TIMEOUT = 8
 MAX_RESULTS = 5
 
 _last_search_status = "no_results"
+LOGGER = logging.getLogger(__name__)
+SEARCH_STOP_WORDS = {
+	"a", "an", "and", "are", "as", "at", "by", "for", "from", "has", "in", "is", "it",
+	"of", "on", "or", "said", "that", "the", "their", "this", "to", "was", "were", "will",
+	"be", "comments", "comment", "guidelines", "respectful", "share", "thoughts", "views", "your",
+}
+
+
+def build_evidence_query(claim: str) -> str:
+	"""Build a concise provider query from entities, dates, and factual terms."""
+	if not isinstance(claim, str):
+		return ""
+	words = re.findall(r"[A-Za-z][A-Za-z'-]*|\b\d+(?:\.\d+)?%?\b", claim)
+	selected = []
+	for word in words:
+		if word.lower().strip("'-") in SEARCH_STOP_WORDS:
+			continue
+		if word not in selected:
+			selected.append(word)
+	query = " ".join(selected[:12]).strip()
+	return query or claim.strip()
 
 
 def _relation_from_rating(rating: str) -> str:
@@ -25,10 +48,12 @@ def _relation_from_rating(rating: str) -> str:
 
 
 def _fact_check_evidence(claim: str, api_key: str) -> list[dict]:
+	query = build_evidence_query(claim)
+	LOGGER.debug("Evidence query for Fact Check: %s", query)
 	try:
 		response = requests.get(
 			FACT_CHECK_URL,
-			params={"query": claim, "key": api_key, "pageSize": MAX_RESULTS},
+			params={"query": query, "key": api_key, "pageSize": MAX_RESULTS},
 			timeout=REQUEST_TIMEOUT,
 		)
 		if response.status_code == 429:
@@ -65,11 +90,13 @@ def _fact_check_evidence(claim: str, api_key: str) -> list[dict]:
 
 
 def _gdelt_evidence(claim: str) -> list[dict]:
+	query = build_evidence_query(claim)
+	LOGGER.debug("Evidence query for GDELT: %s", query)
 	try:
 		response = requests.get(
 			GDELT_URL,
 			params={
-				"query": claim,
+				"query": query,
 				"mode": "artlist",
 				"format": "json",
 				"maxrecords": MAX_RESULTS,
@@ -110,12 +137,14 @@ def search_evidence(claim: str) -> list[dict]:
 	_last_search_status = "no_results"
 	if not isinstance(claim, str) or not claim.strip():
 		return []
+	LOGGER.debug("Searching evidence for claim: %s", claim.strip())
 
 	load_dotenv()
 	api_key = os.getenv("GOOGLE_FACT_CHECK_API_KEY", "").strip()
 	evidence = _fact_check_evidence(claim, api_key) if api_key else []
 	evidence.extend(_gdelt_evidence(claim))
 	evidence = _deduplicate_evidence(evidence)
+	LOGGER.debug("Evidence results for claim %r: %s", claim.strip(), evidence)
 	if evidence:
 		_last_search_status = "evidence_found"
 	else:

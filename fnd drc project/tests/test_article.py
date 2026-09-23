@@ -46,6 +46,36 @@ class ArticleExtractionTests(unittest.TestCase):
 		self.assertNotIn("Subscribe", result["text"])
 		self.assertNotIn("Read more", result["text"])
 
+	def test_filters_comment_guidelines_and_extracts_author(self):
+		response = Mock()
+		response.text = """
+			<html><head><meta name="author" content="Asha Rao"></head><body>
+			<article>
+				<p>The ministry opened a research centre in Mumbai on Monday.</p>
+				<p>Share your thoughts in the comments Be respectful - TOI community guidelines.</p>
+			</article>
+			</body></html>
+		"""
+		with patch("services.article.requests.get", return_value=response):
+			result = extract_article("https://timesofindia.indiatimes.com/story")
+
+		self.assertEqual(result["author"], "Asha Rao")
+		self.assertIn("ministry opened", result["text"])
+		self.assertNotIn("Share your thoughts", result["text"])
+		self.assertNotIn("community guidelines", result["text"])
+
+	def test_adds_sentence_boundaries_to_json_ld_body(self):
+		response = Mock()
+		response.text = """
+			<html><head><script type="application/ld+json">
+			{"@type":"NewsArticle","articleBody":"The agency opened an office in Delhi.The office employs 400 people."}
+			</script></head><body><div>Widget content only.</div></body></html>
+		"""
+		with patch("services.article.requests.get", return_value=response):
+			result = extract_article("https://news.example/story")
+
+		self.assertIn("Delhi. The office", result["text"])
+
 	def test_prefers_article_body_over_page_main_sidebar(self):
 		response = Mock()
 		response.text = """

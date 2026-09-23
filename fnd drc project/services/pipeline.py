@@ -1,10 +1,15 @@
 """Small orchestration helper for the URL/text verification pipeline."""
 
 from collections.abc import Callable
+import logging
 
 from services.evidence import search_evidence, verify_claim
+from services.claims import is_factual_claim
 from services.security import check_url
 from services.scoring import calculate_scores
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def build_analysis_result(
@@ -19,7 +24,12 @@ def build_analysis_result(
 	claim_results = []
 	seen_claims: set[str] = set()
 	for claim in claims:
-		if not isinstance(claim, str) or not claim.strip() or claim.casefold() in seen_claims:
+		if (
+			not isinstance(claim, str)
+			or not claim.strip()
+			or not is_factual_claim(claim)
+			or claim.casefold() in seen_claims
+		):
 			continue
 		seen_claims.add(claim.casefold())
 		try:
@@ -27,6 +37,12 @@ def build_analysis_result(
 		except Exception:
 			evidence = []
 		claim_results.append(verify_claim(claim, evidence))
+		LOGGER.debug(
+			"Final classification claim=%r status=%s evidence_count=%d",
+			claim,
+			claim_results[-1]["status"],
+			len(evidence),
+		)
 
 	try:
 		security = security_checker(url) if input_type == "url" and url else {}
