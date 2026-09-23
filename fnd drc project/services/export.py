@@ -4,10 +4,17 @@ import csv
 import html
 import io
 import json
-import textwrap
+from pathlib import Path
 
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib import font_manager
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 SCORE_KEYS = ("information_risk", "cyber_risk", "source_credibility", "evidence_strength")
@@ -89,40 +96,253 @@ def export_csv(result: dict) -> str:
 
 
 def export_pdf(result: dict) -> bytes:
-    """Return a readable PDF report using Matplotlib's built-in PDF backend."""
-    buffer = io.BytesIO()
-    with PdfPages(buffer) as pdf:
-        lines = [
-            "TruthShield AI Verification Report",
-            "",
-            f"URL: {result.get('url', '')}",
-            f"Article title: {result.get('title', '')}",
-            f"Source: {result.get('source', '')}",
-            "",
-            "Processed Text Statistics:",
-            _json((result.get("text_processing") or {}).get("statistics", result.get("text_statistics", {}))),
-            "",
-            "Claims and Verification:",
+    """Return a purpose-built, paginated verification report."""
+    unicode_font = Path("C:/Windows/Fonts/ARIALUNI.ttf")
+    if unicode_font.exists():
+        font_path = str(unicode_font)
+        bold_font_path = str(unicode_font)
+    else:
+        font_path = font_manager.findfont("DejaVu Sans")
+        bold_font_path = font_manager.findfont(
+            font_manager.FontProperties(family="DejaVu Sans", weight="bold")
+        )
+    pdfmetrics.registerFont(TTFont("TruthShieldSans", font_path))
+    pdfmetrics.registerFont(TTFont("TruthShieldSansBold", bold_font_path))
+
+    styles = getSampleStyleSheet()
+    body_style = ParagraphStyle(
+        "TruthShieldBody",
+        parent=styles["BodyText"],
+        fontName="TruthShieldSans",
+        fontSize=9,
+        leading=12,
+        alignment=TA_LEFT,
+        spaceAfter=5,
+        wordWrap="CJK",
+    )
+    small_style = ParagraphStyle(
+        "TruthShieldSmall",
+        parent=body_style,
+        fontSize=8,
+        leading=10,
+        spaceAfter=0,
+    )
+    label_style = ParagraphStyle(
+        "TruthShieldLabel",
+        parent=body_style,
+        fontName="TruthShieldSansBold",
+        spaceAfter=2,
+    )
+    heading_style = ParagraphStyle(
+        "TruthShieldHeading",
+        parent=styles["Heading2"],
+        fontName="TruthShieldSansBold",
+        fontSize=13,
+        leading=16,
+        textColor=colors.HexColor("#17202a"),
+        spaceBefore=10,
+        spaceAfter=6,
+    )
+    title_style = ParagraphStyle(
+        "TruthShieldTitle",
+        parent=styles["Title"],
+        fontName="TruthShieldSansBold",
+        fontSize=18,
+        leading=22,
+        spaceAfter=12,
+    )
+    subtitle_style = ParagraphStyle(
+        "TruthShieldSubtitle",
+        parent=body_style,
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor("#52606d"),
+        spaceAfter=12,
+    )
+    score_label_style = ParagraphStyle(
+        "TruthShieldScoreLabel",
+        parent=label_style,
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor("#52606d"),
+    )
+    score_value_style = ParagraphStyle(
+        "TruthShieldScoreValue",
+        parent=body_style,
+        fontName="TruthShieldSansBold",
+        fontSize=17,
+        leading=20,
+        textColor=colors.HexColor("#17202a"),
+        spaceAfter=3,
+    )
+
+    def paragraph(value, style=body_style):
+        text = html.escape(str(value)).replace("\n", "<br/>")
+        return Paragraph(text or "-", style)
+
+    def humanize(value) -> str:
+        return str(value).replace("_", " ").strip().title()
+
+    def input_type_label(value) -> str:
+        return {"url": "URL", "text": "Text", "image": "Image"}.get(
+            str(value).lower(), humanize(value)
+        )
+
+    def status_label(value) -> str:
+        return {
+            "supported": "Supported",
+            "contradicted": "Contradicted",
+            "insufficient": "Insufficient Evidence",
+        }.get(str(value).lower(), humanize(value))
+
+    def relation_label(value) -> str:
+        return {"supports": "Supports", "contradicts": "Contradicts", "neutral": "Neutral"}.get(
+            str(value).lower(), humanize(value)
+        )
+
+    def evidence_type_label(value) -> str:
+        return {"fact_check": "Fact Check", "news": "News", "official": "Official"}.get(
+            str(value).lower(), humanize(value)
+        )
+
+    def table(data, widths, header=True, repeat_rows=0):
+        style_commands = [
+            ("FONTNAME", (0, 0), (-1, -1), "TruthShieldSans"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("LEADING", (0, 0), (-1, -1), 10),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 7),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#d9e2ec")),
         ]
-        for number, claim in enumerate(result.get("claims", []), start=1):
-            lines.extend([
-                f"Claim {number}: {claim.get('claim', '')}",
-                f"Status: {claim.get('status', '')}",
-                f"Explanation: {claim.get('explanation', '')}",
+        if header:
+            style_commands.extend([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e9f0f5")),
+                ("FONTNAME", (0, 0), (-1, 0), "TruthShieldSansBold"),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#17202a")),
             ])
-            for item in claim.get("evidence", []):
-                lines.append(
-                    f"Evidence: {item.get('title', '')} | {item.get('url', '')} | "
-                    f"{item.get('source_type', '')} | {item.get('relation', '')}"
-                )
-            lines.append("")
-        lines.extend(["Security Indicators:", _json(result.get("security", {})), "", "Scores:"])
-        for key in SCORE_KEYS:
-            lines.append(f"{key.replace('_', ' ').title()}: {result.get('scores', {}).get(key, 'unknown')} / 100")
-            lines.extend(f"- {reason}" for reason in result.get("score_reasons", {}).get(key, []))
-        lines.extend(["", "Article Text:", str(result.get("text", ""))])
-        figure = plt.figure(figsize=(8.5, 11))
-        figure.text(0.06, 0.97, "\n".join(textwrap.wrap("\n".join(lines), width=105)), va="top", fontsize=8)
-        pdf.savefig(figure, bbox_inches="tight")
-        plt.close(figure)
+        return Table(data, colWidths=widths, repeatRows=repeat_rows, splitByRow=1, hAlign="LEFT"), style_commands
+
+    def draw_footer(canvas, document):
+        canvas.saveState()
+        canvas.setStrokeColor(colors.HexColor("#d9e2ec"))
+        canvas.line(document.leftMargin, 0.48 * inch, letter[0] - document.rightMargin, 0.48 * inch)
+        canvas.setFont("TruthShieldSans", 8)
+        canvas.setFillColor(colors.HexColor("#7b8794"))
+        canvas.drawRightString(letter[0] - document.rightMargin, 0.3 * inch, f"Page {document.page}")
+        canvas.restoreState()
+
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=0.65 * inch,
+        leftMargin=0.65 * inch,
+        topMargin=0.65 * inch,
+        bottomMargin=0.65 * inch,
+        title="TruthShield AI Verification Report",
+        author="TruthShield AI",
+    )
+    content_width = letter[0] - document.leftMargin - document.rightMargin
+    story = [
+        Paragraph("TRUTHSHIELD AI", title_style),
+        Paragraph("AI-Powered Content Verification Report", subtitle_style),
+        Paragraph("1. Analysis Overview", heading_style),
+    ]
+    overview_data = [
+        [paragraph("Input Type", label_style), paragraph(input_type_label(result.get("input_type", "")))],
+        [paragraph("Article Title", label_style), paragraph(result.get("title", ""))],
+        [paragraph("Source", label_style), paragraph(result.get("source", ""))],
+        [paragraph("URL", label_style), paragraph(result.get("url", ""), small_style)],
+    ]
+    overview_table, overview_style = table(overview_data, [1.35 * inch, content_width - 1.35 * inch], header=False)
+    story.extend([overview_table, Spacer(1, 8)])
+
+    story.append(Paragraph("2. Risk Summary", heading_style))
+    scores = result.get("scores", {}) or {}
+    score_reasons = result.get("score_reasons", {}) or {}
+    score_cells = []
+    for key in SCORE_KEYS:
+        score_cells.append([
+            Paragraph(humanize(key), score_label_style),
+            Paragraph(f"{scores.get(key, 'unknown')} / 100", score_value_style),
+            paragraph(" ".join(str(reason) for reason in score_reasons.get(key, [])) or "No explanation available.", small_style),
+        ])
+    score_table = Table([score_cells[:2], score_cells[2:]], colWidths=[content_width / 2] * 2, hAlign="LEFT")
+    score_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f5f8fa")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d9e2ec")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d9e2ec")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+    ]))
+    story.extend([score_table, Spacer(1, 8)])
+
+    story.append(Paragraph("3. Claim Verification", heading_style))
+    claims = result.get("claims", [])
+    if not claims:
+        story.append(Paragraph("No claims were extracted.", body_style))
+    for number, claim in enumerate(claims, start=1):
+        evidence_items = claim.get("evidence", []) or []
+        claim_story = [
+            Paragraph(f"Claim {number}", heading_style),
+            paragraph(f'"{claim.get("claim", "")}"', body_style),
+            paragraph(f"Status: {status_label(claim.get('status', 'insufficient'))}", label_style),
+            paragraph(f"Explanation: {claim.get('explanation', '') or 'No explanation available.'}"),
+            paragraph(f"Evidence: {len(evidence_items)} source(s) found." if evidence_items else "Evidence: No relevant evidence found."),
+        ]
+        claim_table = Table([[claim_story]], colWidths=[content_width], hAlign="LEFT")
+        claim_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafb")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d9e2ec")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.extend([claim_table, Spacer(1, 8)])
+
+    story.append(Paragraph("4. Evidence", heading_style))
+    evidence_rows = [[paragraph("Source", label_style), paragraph("Title", label_style), paragraph("URL", label_style), paragraph("Type", label_style), paragraph("Relation", label_style)]]
+    all_evidence = [(number, item) for number, claim in enumerate(claims, start=1) for item in claim.get("evidence", []) or []]
+    for number, item in all_evidence:
+        evidence_rows.append([
+            paragraph(f"Claim {number}"),
+            paragraph(item.get("title", "")),
+            paragraph(item.get("url", ""), small_style),
+            paragraph(evidence_type_label(item.get("source_type", "unknown"))),
+            paragraph(relation_label(item.get("relation", "neutral"))),
+        ])
+    if len(evidence_rows) == 1:
+        story.append(Paragraph("No relevant evidence found.", body_style))
+    else:
+        evidence_table, evidence_style = table(evidence_rows, [0.7 * inch, 1.45 * inch, 2.6 * inch, 0.85 * inch, 0.85 * inch], repeat_rows=1)
+        story.append(evidence_table)
+
+    story.append(Paragraph("5. Cybersecurity Analysis", heading_style))
+    security = result.get("security", {}) or {}
+    security_rows = [[paragraph("Indicator", label_style), paragraph("Result", label_style)]]
+    security_rows.extend([
+        [paragraph("HTTPS"), paragraph("Enabled" if security.get("https") else "Not enabled")],
+        [paragraph("Suspicious URL"), paragraph("Detected" if security.get("suspicious_url") else "Not detected")],
+        [paragraph("Hostname Resolution"), paragraph("Successful" if security.get("dns_resolves") else "Failed")],
+        [paragraph("SSL Certificate"), paragraph("Valid" if security.get("ssl_available") else "Unavailable")],
+        [paragraph("Threat Reputation"), paragraph(humanize(security.get("threat_reputation", "unknown")))],
+    ])
+    certificate = security.get("certificate", {}) or {}
+    if certificate.get("issuer"):
+        security_rows.append([paragraph("Certificate Issuer"), paragraph(certificate["issuer"])])
+    if certificate.get("expires"):
+        security_rows.append([paragraph("Certificate Expiry"), paragraph(certificate["expires"])])
+    for indicator in security.get("indicators", []) or []:
+        security_rows.append([paragraph("Indicator"), paragraph(indicator)])
+    security_table, security_style = table(security_rows, [2.1 * inch, content_width - 2.1 * inch])
+    story.append(security_table)
+
+    document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
     return buffer.getvalue()
