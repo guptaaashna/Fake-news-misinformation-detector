@@ -143,3 +143,16 @@ Completed analyses are stored in `data/truthshield.db`. The database is local an
 - Security checks are basic indicators, not a malware or reputation verdict.
 - Scores are heuristic prototype indicators, not scientifically validated probabilities.
 - Network access, API rate limits, and publisher page structure affect results.
+
+## Selected Pretrained Model (Planned Fine-Tuning)
+
+We selected [`distilbert/distilbert-base-uncased`](https://huggingface.co/distilbert/distilbert-base-uncased) as the starting model for claim classification. DistilBERT is a smaller English transformer derived from BERT, making fine-tuning and inference more manageable with limited computing resources. It fits TruthShield AI's existing workflow, which extracts short factual claims from news articles.
+
+We plan to load the checkpoint through `AutoModelForSequenceClassification` with a classification head matching the chosen dataset's labels, then fine-tune both the head and pretrained model weights. The model's predictions will supplement external evidence checks: text classification alone cannot establish factual truth. DistilBERT's effectiveness will be measured against baselines rather than assumed.
+
+Model initialization is implemented in `training/setup_model.py`. See [model setup instructions](training/README.md) for installation, downloading the pretrained checkpoint, and offline verification. Fine-tuning, evaluation, and application integration are subsequent steps.
+
+References:
+
+- [DistilBERT documentation](https://huggingface.co/docs/transformers/en/model_doc/distilbert)
+- [Hugging Face text classification guide](https://huggingface.co/docs/transformers/en/tasks/sequence_classification)
