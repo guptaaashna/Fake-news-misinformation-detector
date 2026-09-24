@@ -29,3 +29,6 @@ Thumbs.db
 # Downloaded model artifacts
 models/
 .cache/
+
+# Original research dataset and generated preparation artifacts
+data/liar/
