@@ -166,6 +166,44 @@ Run regression checks without network or downloaded model files:
 See [the tokenization results](TOKENIZATION_REPORT.md). Tokenization does not train
 the model or evaluate its predictions on any split.
 
+## Baseline training and validation
+
+The collaborators' TF-IDF + logistic regression pipeline is retained. It now
+verifies data checksums, fits only on training data, evaluates validation, and
+saves per-class precision/recall/F1, macro-F1, accuracy, and a confusion matrix.
+Importing the module does not start training. Run from the project directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m training.train_baseline
+```
+
+Outputs are `models/baseline-validation-v1/model.joblib` and
+`models/baseline-validation-v1/validation_metrics.json`. A nonempty output directory
+is protected; choose `--output-dir models/baseline-validation-v2` for a new run.
+Reloaded model predictions are checked against the original validation predictions.
+The prior `models/tfidf_logistic_baseline.joblib`, if present, is not overwritten.
+The checked-in aggregate report is [baseline_validation.json](baseline_validation.json).
+The 2026-09-26 run obtained validation accuracy 0.245327 and macro-F1 0.226209.
+Model weights remain local; no test evaluation was performed.
+
+## Integration status and LoRA handoff
+
+The shared baseline and local audited tokenizer have been integrated. The tokenizer
+stores `labels` (plural), not the collaborators' earlier `label` field. Training
+should use `load_dataloader` or explicitly select `input_ids`, `attention_mask`,
+and `labels`; do not send IDs or statement strings to the model. A batch size of
+8 can be requested with `load_dataloader("train", batch_size=8)`.
+
+As of the fetched main commit `647b6c0`, no LoRA script or PEFT dependency was
+published on the available branches. Its reported settings cannot yet be verified.
+Before the final main merge and LoRA training, obtain that script and check:
+
+- Compatibility with plural `labels` and dynamic padding.
+- Correct DistilBERT adapter targets; frozen base weights and trainable adapters.
+- Both `pre_classifier` and `classifier` are trained and saved.
+- Validation macro-F1 selects the best checkpoint; test remains unused.
+- Adapter/head reload reproduces predictions, with a pinned base revision.
+
 ## Next step
 
 Train majority-class and TF-IDF baselines on `data/liar/deduplicated/train.jsonl`.
