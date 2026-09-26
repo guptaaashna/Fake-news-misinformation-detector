@@ -1,0 +1,23 @@
+{
+  "base_checkpoint": "C:\\Users\\Note17\\Desktop\\Fake-news-misinformation-detector\\fnd drc project\\models\\distilbert-liar-initialized",
+  "epochs_requested": 3,
+  "best_epoch": 3,
+  "best_validation_macro_f1": 0.2520442958131919,
+  "batch_size": 8,
+  "max_length": 128,
+  "truncation": true,
+  "padding": "dynamic",
+  "lora": {
+    "rank": 8,
+    "alpha": 16,
+    "dropout": 0.1,
+    "target_modules": [
+      "q_lin",
+      "v_lin"
+    ]
+  },
+  "learning_rate": 0.0002,
+  "weight_decay": 0.01,
+  "seed": 42,
+  "test_split_used": false
+}

@@ -27,7 +27,10 @@ Thumbs.db
 .vscode/
 
 # Downloaded model artifacts
-models/
+models/*
+!models/distilbert-liar-lora/
+models/distilbert-liar-lora/*
+!models/distilbert-liar-lora/**
 .cache/
 
 # Original research dataset and generated preparation artifacts
