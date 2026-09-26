@@ -109,10 +109,67 @@ Run the preparation regression checks with:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p test_dataset_preparation.py
 ```
 
+## Tokenization and batches
+
+After model setup and dataset preparation, run offline:
+
+```powershell
+.\.venv\Scripts\python.exe -m training.tokenize_dataset
+```
+
+This verifies prepared input hashes and loads the tokenizer from
+`models/distilbert-liar-initialized/` with `local_files_only=True`. The pretrained
+uncased WordPiece tokenizer performs its own normalization and subword splitting;
+we do not fit a new vocabulary or remove punctuation, negation, or numbers.
+Lengths include `[CLS]` and `[SEP]`. The existing 128-token limit is checked
+against training lengths; held-out lengths are diagnostics, not tuning criteria.
+Right truncation preserves special tokens. No prepared claim exceeds 128 tokens.
+
+Outputs in the ignored `data/liar/tokenized/` directory:
+
+- `train.jsonl`, `validation.jsonl`, `test.jsonl`: ID, variable-length `input_ids`,
+  `attention_mask`, and integer `labels`. No padding is stored.
+- `report.json`: full-length statistics and truncation counts, source and output
+  hashes, tokenizer file hashes and base revision, package versions, and batch settings.
+
+The script refuses to overwrite different outputs; use `--output-dir` for a new
+version. Identical reruns are safe. `--data-dir` and `--model-dir` accept alternate
+prepared-data and local checkpoint directories.
+
+To consume these files in a future training loop:
+
+```python
+from training.tokenize_dataset import load_dataloader
+
+train_loader = load_dataloader("train")  # batch size 16, shuffled with seed 42
+validation_loader = load_dataloader("validation")  # batch size 32, source order
+# Test is loaded explicitly only for final evaluation.
+# batch = next(iter(train_loader))
+# outputs = model(**batch)
+```
+
+`DataCollatorWithPadding` pads to the longest sequence in each batch, on the right.
+The attention mask is 1 for real tokens and 0 for padding. IDs are excluded from
+model inputs. Labels are PyTorch integer tensors for six-class cross-entropy.
+The final partial batch is retained, and `num_workers=0` works on Windows.
+Batch sizes can be overridden with `batch_size=`; 16/32 are starting defaults,
+not a measured guarantee of training memory capacity. Loaders verify tokenized
+data and tokenizer hashes before use. Training reshuffles each epoch while
+remaining reproducible across fresh runs with the same seed.
+
+Run regression checks without network or downloaded model files:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_tokenization.py
+```
+
+See [the tokenization results](TOKENIZATION_REPORT.md). Tokenization does not train
+the model or evaluate its predictions on any split.
+
 ## Next step
 
 Train majority-class and TF-IDF baselines on `data/liar/deduplicated/train.jsonl`.
-Measure tokenizer lengths/truncation before fine-tuning the encoder and head.
+Tokenization and batch preparation are complete; then fine-tune the encoder and head.
 Select checkpoints using validation macro-F1 and reserve test examples for final
 evaluation. Word lengths in the report are not tokenizer lengths. Fit learned
 preprocessing only on training data; do not rebalance validation or test sets.
