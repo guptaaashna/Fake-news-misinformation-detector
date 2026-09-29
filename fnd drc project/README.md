@@ -15,16 +15,13 @@ TruthShield AI is a URL-only Streamlit MVP for explainable article verification.
 - SQLite analysis history, newest first
 - HTML, CSV, and PDF report downloads
 - Plotly, Matplotlib, and Seaborn visualizations
-- Graceful handling of invalid URLs, blocked pages, API failures, and missing evidence
-
-Images, OCR, Tesseract, Pillow image processing, and manually pasted-text analysis are not active in the current MVP.
+- Graceful handling of invalid URLs, blocked pages and missing evidence
 
 ## Tech Stack
 
 - Python 3.11+, Streamlit, Requests, BeautifulSoup
 - spaCy with `en_core_web_sm`, NLTK
-- Matplotlib, Seaborn, Plotly, SQLite, python-dotenv
-- Google Fact Check Tools API and GDELT DOC API
+- Matplotlib, Seaborn, Plotly, python-dotenv
 
 ## Architecture
 
@@ -134,7 +131,7 @@ Completed analyses are stored in `data/truthshield.db`. The database is local an
 - Verification depends on available evidence and does not treat missing evidence as falsity.
 - Security checks are basic indicators, not a malware or reputation verdict.
 - Scores are heuristic prototype indicators, not scientifically validated probabilities.
-- Network access, API rate limits, and publisher page structure affect results.
+- Network access and publisher page structure affect results.
 
 ## Selected Pretrained Model (Planned Fine-Tuning)
 
