@@ -104,15 +104,7 @@ Copy-Item .env.example .env
 
 Keep `.env` private. It is ignored by Git.
 
-### 4. Configure optional evidence API access
-
-```env
-GOOGLE_FACT_CHECK_API_KEY=your_api_key_here
-```
-
-GDELT does not require an API key. If either service is unavailable, the application continues and reports insufficient evidence where appropriate.
-
-### 5. Run the Streamlit application
+### 4. Run the Streamlit application
 
 ```powershell
 python -m streamlit run app.py
