@@ -1,0 +1,46 @@
+{
+  "dataset": "LIAR deduplicated held-out test split",
+  "examples": 1283,
+  "device": "cpu",
+  "accuracy": 0.2837100545596259,
+  "macro_f1": 0.268405956475023,
+  "weighted_f1": 0.27691748090512824,
+  "per_class": {
+    "false": {
+      "precision": 0.3316062176165803,
+      "recall": 0.256,
+      "f1-score": 0.28893905191873587,
+      "support": 250.0
+    },
+    "half-true": {
+      "precision": 0.25121951219512195,
+      "recall": 0.3857677902621723,
+      "f1-score": 0.30428360413589367,
+      "support": 267.0
+    },
+    "mostly-true": {
+      "precision": 0.2852112676056338,
+      "recall": 0.3253012048192771,
+      "f1-score": 0.30393996247654786,
+      "support": 249.0
+    },
+    "true": {
+      "precision": 0.2897959183673469,
+      "recall": 0.33649289099526064,
+      "f1-score": 0.31140350877192985,
+      "support": 211.0
+    },
+    "barely-true": {
+      "precision": 0.2689075630252101,
+      "recall": 0.14953271028037382,
+      "f1-score": 0.1921921921921922,
+      "support": 214.0
+    },
+    "pants-fire": {
+      "precision": 0.40625,
+      "recall": 0.14130434782608695,
+      "f1-score": 0.20967741935483872,
+      "support": 92.0
+    }
+  }
+}
