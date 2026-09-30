@@ -1,14 +1,11 @@
 """External evidence search using Fact Check Tools and GDELT."""
 
-import os
 import re
 import logging
 
 import requests
-from dotenv import load_dotenv
 
 
-FACT_CHECK_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 REQUEST_TIMEOUT = 8
 MAX_RESULTS = 5
@@ -37,58 +34,6 @@ def build_evidence_query(claim: str) -> str:
 	return query or claim.strip()
 
 
-def _relation_from_rating(rating: str) -> str:
-	"""Map common fact-check ratings without pretending to validate a claim."""
-	lowered = rating.lower()
-	if any(word in lowered for word in ("true", "correct", "accurate", "supported")):
-		return "supports"
-	if any(word in lowered for word in ("false", "fake", "incorrect", "misleading", "unsupported")):
-		return "contradicts"
-	return "neutral"
-
-
-def _fact_check_evidence(claim: str, api_key: str) -> list[dict]:
-	query = build_evidence_query(claim)
-	LOGGER.debug("Evidence query for Fact Check: %s", query)
-	try:
-		response = requests.get(
-			FACT_CHECK_URL,
-			params={"query": query, "key": api_key, "pageSize": MAX_RESULTS},
-			timeout=REQUEST_TIMEOUT,
-		)
-		if response.status_code == 429:
-			return []
-		response.raise_for_status()
-		payload = response.json()
-	except (requests.RequestException, ValueError):
-		return []
-	if not isinstance(payload, dict):
-		return []
-
-	evidence = []
-	for result in payload.get("claims", []):
-		if not isinstance(result, dict):
-			continue
-		for review in result.get("claimReview", []):
-			if not isinstance(review, dict):
-				continue
-			url = review.get("url")
-			if not url:
-				continue
-			rating = review.get("textualRating", "")
-			evidence.append(
-				{
-					"title": review.get("title") or result.get("text") or "Fact-check review",
-					"url": url,
-					"source_type": "fact_check",
-					"relation": _relation_from_rating(rating),
-				}
-			)
-			if len(evidence) >= MAX_RESULTS:
-				return evidence
-	return evidence
-
-
 def _gdelt_evidence(claim: str) -> list[dict]:
 	query = build_evidence_query(claim)
 	LOGGER.debug("Evidence query for GDELT: %s", query)
@@ -107,6 +52,7 @@ def _gdelt_evidence(claim: str) -> list[dict]:
 		response.raise_for_status()
 		payload = response.json()
 	except (requests.RequestException, ValueError):
+		LOGGER.warning("GDELT evidence search failed for claim %r", claim, exc_info=True)
 		return []
 	if not isinstance(payload, dict):
 		return []
@@ -132,23 +78,20 @@ def _gdelt_evidence(claim: str) -> list[dict]:
 
 
 def search_evidence(claim: str) -> list[dict]:
-	"""Search Fact Check first, then add contextual GDELT news results."""
+	"""Search GDELT for contextual news; results remain neutral evidence."""
 	global _last_search_status
 	_last_search_status = "no_results"
 	if not isinstance(claim, str) or not claim.strip():
 		return []
 	LOGGER.debug("Searching evidence for claim: %s", claim.strip())
 
-	load_dotenv()
-	api_key = os.getenv("GOOGLE_FACT_CHECK_API_KEY", "").strip()
-	evidence = _fact_check_evidence(claim, api_key) if api_key else []
-	evidence.extend(_gdelt_evidence(claim))
+	evidence = _gdelt_evidence(claim)
 	evidence = _deduplicate_evidence(evidence)
 	LOGGER.debug("Evidence results for claim %r: %s", claim.strip(), evidence)
 	if evidence:
 		_last_search_status = "evidence_found"
 	else:
-		_last_search_status = "unavailable" if not api_key else "no_results"
+		_last_search_status = "no_results"
 	return evidence[: MAX_RESULTS * 2]
 
 

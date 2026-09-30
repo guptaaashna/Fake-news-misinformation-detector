@@ -8,7 +8,8 @@ TruthShield AI is a URL-only Streamlit MVP for explainable article verification.
 - General HTML article extraction with boilerplate filtering
 - NLTK text processing and article statistics
 - spaCy rule-based candidate claim extraction
-- Google Fact Check Tools API and GDELT contextual search
+- GDELT contextual news search
+- Local six-class DistilBERT LoRA claim predictions
 - Explainable Supported, Contradicted, and Insufficient Evidence results
 - Basic HTTPS, DNS, SSL, hostname, and suspicious-pattern indicators
 - Four bounded prototype indicators with component explanations
@@ -27,7 +28,8 @@ TruthShield AI is a URL-only Streamlit MVP for explainable article verification.
 
 ```text
 URL -> Article extraction -> Text processing -> Candidate claims
-	-> Fact Check / GDELT evidence -> Claim verification
+	-> GDELT contextual evidence -> Evidence-only claim verification
+	-> Independent local LoRA claim prediction
 	-> URL security indicators -> Prototype scores and explanations
 	-> Streamlit dashboard, SQLite history, HTML/CSV/PDF exports
 ```
@@ -133,13 +135,11 @@ Completed analyses are stored in `data/truthshield.db`. The database is local an
 - Scores are heuristic prototype indicators, not scientifically validated probabilities.
 - Network access and publisher page structure affect results.
 
-## Selected Pretrained Model (Planned Fine-Tuning)
+## Local LoRA Classifier
 
-We selected [`distilbert/distilbert-base-uncased`](https://huggingface.co/distilbert/distilbert-base-uncased) as the starting model for claim classification. DistilBERT is a smaller English transformer derived from BERT, making fine-tuning and inference more manageable with limited computing resources. It fits TruthShield AI's existing workflow, which extracts short factual claims from news articles.
+The trained adapter in `models/distilbert-liar-lora/` uses the six LIAR labels in `training/setup_model.py`. On first prediction, the app downloads the repository's configured base checkpoint, [`distilbert/distilbert-base-uncased`](https://huggingface.co/distilbert/distilbert-base-uncased), from Hugging Face and attaches the local adapter with PEFT. The adapter and tokenizer stay local; Hugging Face caches the base checkpoint for later runs.
 
-We plan to load the checkpoint through `AutoModelForSequenceClassification` with a classification head matching the chosen dataset's labels, then fine-tune both the head and pretrained model weights. The model's predictions will supplement external evidence checks: text classification alone cannot establish factual truth. DistilBERT's effectiveness will be measured against baselines rather than assumed.
-
-Model initialization is implemented in `training/setup_model.py`. See [model setup instructions](training/README.md) for installation, downloading the pretrained checkpoint, and offline verification. Fine-tuning, evaluation, and application integration are subsequent steps.
+Predictions are displayed separately from evidence verification. GDELT articles are contextual and neutral; neither GDELT results nor the model prediction alone determine the evidence verification status. No Google Fact Check API is used.
 
 References:
 

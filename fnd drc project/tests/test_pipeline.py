@@ -150,6 +150,41 @@ class PipelineIntegrationTests(unittest.TestCase):
 		self.assertEqual(searched_claims, ["The ministry opened a research centre in Mumbai on Monday."])
 		self.assertEqual(result["claims"][0]["status"], "insufficient")
 
+	def test_model_prediction_is_separate_from_evidence_status(self):
+		prediction = {
+			"label": "false",
+			"confidence": 0.6,
+			"class_scores": {"false": 0.6, "half-true": 0.1, "mostly-true": 0.1,
+				"true": 0.1, "barely-true": 0.05, "pants-fire": 0.05},
+		}
+		result = build_analysis_result(
+			"text",
+			{"title": "Pasted Text", "source": "User Input", "text": "A claim."},
+			["The agency opened a new office in Delhi."],
+			lambda claim: [],
+			model_predictor=lambda claim: prediction,
+		)
+
+		self.assertEqual(result["claims"][0]["status"], "insufficient")
+		self.assertEqual(result["claims"][0]["model_prediction"], prediction)
+		self.assertIsNone(result["model_error"])
+
+	def test_model_load_error_is_reported_without_losing_evidence_results(self):
+		def unavailable_model(claim: str) -> dict:
+			raise RuntimeError("base checkpoint download failed")
+
+		result = build_analysis_result(
+			"text",
+			{"title": "Pasted Text", "source": "User Input", "text": "A claim."},
+			["The agency opened a new office in Delhi."],
+			supporting_evidence,
+			model_predictor=unavailable_model,
+		)
+
+		self.assertEqual(result["claims"][0]["status"], "supported")
+		self.assertIsNone(result["claims"][0]["model_prediction"])
+		self.assertIn("base checkpoint download failed", result["model_error"])
+
 
 if __name__ == "__main__":
 	unittest.main()

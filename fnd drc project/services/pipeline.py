@@ -5,6 +5,7 @@ import logging
 
 from services.evidence import search_evidence, verify_claim
 from services.claims import is_factual_claim
+from services.model_inference import predict_claim
 from services.security import check_url
 from services.scoring import calculate_scores
 
@@ -19,10 +20,12 @@ def build_analysis_result(
 	evidence_searcher: Callable[[str], list[dict]] = search_evidence,
 	security_checker: Callable[[str], dict] = check_url,
 	url: str = "",
+	model_predictor: Callable[[str], dict] | None = None,
 ) -> dict:
-	"""Run evidence and verification for extracted URL/text content."""
+	"""Run independent model prediction, evidence verification, and URL checks."""
 	claim_results = []
 	seen_claims: set[str] = set()
+	model_error = None
 	for claim in claims:
 		if (
 			not isinstance(claim, str)
@@ -32,11 +35,21 @@ def build_analysis_result(
 		):
 			continue
 		seen_claims.add(claim.casefold())
+		prediction = None
+		if model_predictor is not None and model_error is None:
+			try:
+				prediction = model_predictor(claim)
+			except Exception as error:
+				model_error = str(error) or type(error).__name__
+				LOGGER.exception("LoRA prediction failed for claim %r", claim)
 		try:
 			evidence = evidence_searcher(claim)
 		except Exception:
+			LOGGER.exception("Evidence search failed for claim %r", claim)
 			evidence = []
-		claim_results.append(verify_claim(claim, evidence))
+		claim_result = verify_claim(claim, evidence)
+		claim_result["model_prediction"] = prediction
+		claim_results.append(claim_result)
 		LOGGER.debug(
 			"Final classification claim=%r status=%s evidence_count=%d",
 			claim,
@@ -61,6 +74,7 @@ def build_analysis_result(
 		"source": content.get("source", ""),
 		"text": content.get("text", ""),
 		"claims": claim_results,
+		"model_error": model_error,
 		"security": security,
 		"scores": {
 			key: scores[key]

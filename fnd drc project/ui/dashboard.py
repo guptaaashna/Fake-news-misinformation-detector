@@ -10,8 +10,9 @@ except (ImportError, OSError):
 	sns = None
 
 from services.article import ArticleExtractionError, extract_article
-from services.claims import MODEL_INSTALL_MESSAGE, extract_claims, is_full_model_available
+from services.claims import extract_claims
 from services.export import export_csv, export_html, export_pdf
+from services.model_inference import predict_claim
 from services.pipeline import build_analysis_result
 from services.storage import load_history, save_analysis
 from services.text_processing import process_text
@@ -111,6 +112,7 @@ def _set_analysis_result(input_type: str, content: dict[str, str]) -> None:
 			content,
 			st.session_state.candidate_claims,
 			url=st.session_state.selected_input,
+			model_predictor=predict_claim,
 		)
 		st.session_state.analysis_result = result
 		result["url"] = st.session_state.selected_input
@@ -151,14 +153,9 @@ def render_extracted_content() -> None:
 
 def render_claim_analysis() -> None:
 	st.header("4. Candidate Claims")
-	st.caption(
-		"These are candidate factual claims extracted from the input. "
-		"Verification status is based only on the evidence currently available."
-	)
-	st.warning(
-		"Verification is based on the evidence currently available to the system. "
-		"Insufficient Evidence does not mean the claim is false."
-	)
+	model_error = (st.session_state.get("analysis_result") or {}).get("model_error")
+	if model_error:
+		st.error(f"LoRA model prediction is unavailable: {model_error}")
 	claims = st.session_state.get("candidate_claims", [])
 	if not claims and st.session_state.get("extracted_content"):
 		claims = extract_claims(st.session_state["extracted_content"]["text"])
@@ -176,20 +173,32 @@ def render_claim_analysis() -> None:
 					"explanation": "No analysis result is available for this claim yet.",
 					"evidence": [],
 				}
+			prediction = verification.get("model_prediction")
+			if prediction:
+				st.subheader(f"AI Model Assessment: {prediction['label'].upper()}")
+				st.write(f"Model confidence: {prediction['confidence']:.1%}")
+				with st.expander("All six class scores"):
+					st.json(prediction["class_scores"])
 			evidence = verification["evidence"]
-			status = verification["status"]
-			status_label = {
-				"supported": "SUPPORTED",
-				"contradicted": "CONTRADICTED",
-				"insufficient": "INSUFFICIENT EVIDENCE",
-			}[status]
-			if status == "supported":
-				st.success(f"Verification status: {status_label}")
-			elif status == "contradicted":
-				st.error(f"Verification status: {status_label}")
+			if not evidence:
+				st.info("**External Evidence: Unavailable**")
+				st.write(
+					"No external evidence was available. The assessment above is based on the trained LoRA model."
+				)
 			else:
-				st.info(f"Verification status: {status_label}")
-			if evidence:
+				st.markdown("**External Evidence Verification**")
+				status = verification["status"]
+				status_label = {
+					"supported": "SUPPORTED",
+					"contradicted": "CONTRADICTED",
+					"insufficient": "INSUFFICIENT EVIDENCE",
+				}[status]
+				if status == "supported":
+					st.success(f"Verification status: {status_label}")
+				elif status == "contradicted":
+					st.error(f"Verification status: {status_label}")
+				else:
+					st.info(f"Verification status: {status_label}")
 				fact_checks = [item for item in evidence if item["source_type"] == "fact_check"]
 				news_results = [item for item in evidence if item["source_type"] == "news"]
 				if fact_checks:
@@ -198,16 +207,7 @@ def render_claim_analysis() -> None:
 				if news_results:
 					st.markdown("**News/Context Sources**")
 					_render_evidence_items(news_results)
-			else:
-				st.warning(
-					"No external evidence is currently available. "
-					"No relevant evidence was found for this claim."
-				)
-			st.markdown(f"**Explanation**  \n{verification['explanation']}")
-	if not is_full_model_available():
-		st.warning(MODEL_INSTALL_MESSAGE)
-
-
+				st.markdown(f"**Explanation**  \n{verification['explanation']}")
 def render_text_processing() -> None:
 	st.header("3. Text Processing")
 	processed = st.session_state.get("text_processing")
