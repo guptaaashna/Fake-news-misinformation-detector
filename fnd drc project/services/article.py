@@ -6,11 +6,20 @@ import json
 from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup
-
+from bs4 import BeautifulSoup, NavigableString
 
 REQUEST_TIMEOUT = 10
-USER_AGENT = "TruthShieldAI/0.1 (educational content extraction)"
+USER_AGENT = (
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+	"AppleWebKit/537.36 (KHTML, like Gecko) "
+	"Chrome/140.0.0.0 Safari/537.36"
+)
+REQUEST_HEADERS = {
+	"User-Agent": USER_AGENT,
+	"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+	"Accept-Language": "en-US,en;q=0.9",
+	"Upgrade-Insecure-Requests": "1",
+}
 BOILERPLATE_MARKERS = (
 	"author",
 	"advert",
@@ -46,6 +55,8 @@ BOILERPLATE_PHRASES = (
 	"about the author",
 	"cookie policy",
 	"privacy policy",
+	"get the latest india news",
+	"download the toi app",
 )
 LOGGER = logging.getLogger(__name__)
 
@@ -169,7 +180,33 @@ def _get_article_text(soup: BeautifulSoup) -> str:
 		for paragraph in content_root.find_all("p")
 		if _is_useful_paragraph(paragraph.get_text(" ", strip=True))
 	]
-	return "\n\n".join(paragraphs) or structured_body
+	return "\n\n".join(paragraphs) or _get_times_of_india_article_text(soup) or structured_body
+
+
+def _get_times_of_india_article_text(soup: BeautifulSoup) -> str:
+	"""Extract TOI article copy, which is rendered as direct text nodes."""
+	content = soup.select_one(".js_tbl_article .ihgno")
+	if not content:
+		return ""
+
+	blocks = []
+	for child in content.children:
+		is_section_heading = (
+			getattr(child, "name", None) == "div"
+			and "cdatainfo" in child.get("class", [])
+		)
+		if isinstance(child, NavigableString):
+			text = clean_text(str(child))
+		elif is_section_heading:
+			text = clean_text(child.get_text(" ", strip=True))
+		else:
+			continue
+		is_clean_heading = is_section_heading and len(text) >= 10 and not any(
+			phrase in text.lower() for phrase in BOILERPLATE_PHRASES
+		)
+		if _is_useful_paragraph(text) or is_clean_heading:
+			blocks.append(text)
+	return "\n\n".join(blocks)
 
 
 def extract_article(url: str) -> dict[str, str]:
@@ -178,8 +215,9 @@ def extract_article(url: str) -> dict[str, str]:
 	try:
 		response = requests.get(
 			validated_url,
-			headers={"User-Agent": USER_AGENT},
+			headers=REQUEST_HEADERS,
 			timeout=REQUEST_TIMEOUT,
+			allow_redirects=True,
 		)
 		response.raise_for_status()
 	except requests.RequestException as error:
@@ -195,7 +233,8 @@ def extract_article(url: str) -> dict[str, str]:
 			"Unable to extract this article automatically. Please paste the article text instead."
 		)
 
-	parsed_url = urlparse(validated_url)
+	response_url = getattr(response, "url", None)
+	parsed_url = urlparse(response_url if isinstance(response_url, str) and response_url else validated_url)
 	result = {
 		"title": _get_title(soup),
 		"source": parsed_url.hostname or parsed_url.netloc,
